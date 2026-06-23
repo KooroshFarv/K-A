@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_sock import Sock
 import cv2
 import numpy as np
@@ -21,8 +21,7 @@ sock = Sock(app)
 API_KEY = os.environ.get("LIGHTX_API_KEY")
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-
-# load face mesh model 
+# Load face mesh model
 MODEL_PATH = "face_landmarker.task"
 if not os.path.exists(MODEL_PATH):
     print("Downloading face landmark model...")
@@ -37,7 +36,7 @@ face_options = vision.FaceLandmarkerOptions(
     min_tracking_confidence=0.5
 )
 
-# load hair segmentation model 
+# Load hair segmentation model
 print("Loading hair segmentation model...")
 processor = SegformerImageProcessor.from_pretrained("mattmdjaga/segformer_b2_clothes")
 hair_model = AutoModelForSemanticSegmentation.from_pretrained("mattmdjaga/segformer_b2_clothes")
@@ -46,7 +45,6 @@ HAIR_LABEL = 2
 PROCESS_SIZE = 256
 
 ANCHOR_IDS = [1, 33, 263, 152, 234, 454]
-RESEG_INTERVAL = 30
 
 def decode_frame(frame_b64):
     frame_bytes = base64.b64decode(frame_b64)
@@ -70,10 +68,11 @@ def get_hair_mask(frame):
     pred = upsampled.argmax(dim=1)[0].numpy()
     mask = (pred == HAIR_LABEL).astype(np.uint8)
 
+    # Remove small noise blobs
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-
+    # Keep only largest connected component
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     if num_labels > 1:
         largest = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
@@ -81,27 +80,26 @@ def get_hair_mask(frame):
         clean_mask[labels == largest] = 1
         mask = clean_mask
 
+    # Fill holes inside hair region
     kernel2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel2)
 
+    # Exclude face region
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-
     for (x, y, fw, fh) in faces:
         pad_x = int(fw * 0.05)
-        pad_y_top = int(fh * 0.0)   # don't cut forehead (hair starts there)
-        pad_y_bot = int(fh * 0.0)
         x1 = max(0, x + pad_x)
-        y1 = max(0, y + int(fh * 0.25))  # start exclusion 25% down the face
+        y1 = max(0, y + int(fh * 0.15))
         x2 = min(w, x + fw - pad_x)
-        y2 = min(h, y + fh + pad_y_bot)
+        y2 = min(h, y + fh + int(fh * 0.1))
         mask[y1:y2, x1:x2] = 0
 
+    # Smooth edges
     mask_blur = cv2.GaussianBlur(mask.astype(np.float32), (11, 11), 0)
     mask = (mask_blur > 0.5).astype(np.uint8)
 
     return mask
-
 
 def get_anchors(face_landmarks, w, h):
     pts = []
@@ -113,29 +111,39 @@ def get_anchors(face_landmarks, w, h):
 def apply_color(frame, mask, color_bgr):
     if color_bgr is None:
         return frame
-    
-    h, w = frame.shape[:2]
-    result = frame.copy().astype(np.float32)
-    
-    # Convert hair region to grayscale to extract texture/luminance only
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
-    
-    # Normalize luminance to 0.3-1.0 range so dark hair still shows color
-    gray_normalized = 0.3 + gray * 0.7
-    
-    # Build the new hair color using luminance as a texture multiplier
-    new_color = np.zeros_like(frame, dtype=np.float32)
-    for c in range(3):
-        new_color[:, :, c] = color_bgr[c] * gray_normalized
-    
-    # Apply softly smoothed mask for natural edges
-    mask_smooth = cv2.GaussianBlur(mask.astype(np.float32), (15, 15), 0)
+
+    # Convert frame and target color to HSV
+    frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+    color_pixel = np.uint8([[list(color_bgr)]])
+    color_hsv = cv2.cvtColor(color_pixel, cv2.COLOR_BGR2HSV)[0][0].astype(np.float32)
+
+    target_hue = color_hsv[0]
+    target_sat = color_hsv[1]
+
+    output_hsv = frame_hsv.copy()
+
+    # Smoothed mask for natural edges
+    mask_smooth = cv2.GaussianBlur(mask.astype(np.float32), (11, 11), 0)
+
+    # Replace hue completely where mask is active
+    output_hsv[:, :, 0] = frame_hsv[:, :, 0] * (1 - mask_smooth) + target_hue * mask_smooth
+
+    # Boost saturation toward target color
+    value_map = frame_hsv[:, :, 2] / 255.0
+    sat_boost = target_sat * (0.5 + 0.5 * value_map)
+    output_hsv[:, :, 1] = np.clip(
+        frame_hsv[:, :, 1] * (1 - mask_smooth) + sat_boost * mask_smooth,
+        0, 255
+    )
+
+    # Keep original Value (brightness) to preserve hair texture
+    output_bgr = cv2.cvtColor(output_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    # Final blend
     mask_3ch = cv2.merge([mask_smooth, mask_smooth, mask_smooth])
-    
-    # Replace hair color completely (high opacity blend — 0.85)
-    OPACITY = 0.85
-    result = result * (1 - mask_3ch * OPACITY) + new_color * (mask_3ch * OPACITY)
-    
+    result = (frame.astype(np.float32) * (1 - mask_3ch * 0.9) +
+              output_bgr.astype(np.float32) * (mask_3ch * 0.9))
+
     return result.clip(0, 255).astype(np.uint8)
 
 
@@ -146,14 +154,15 @@ def health():
 
 @sock.route('/stream')
 def stream(ws):
-    """Live continuous color streaming with face-mesh tracked hair mask"""
     print("Client connected to stream")
     landmarker = vision.FaceLandmarker.create_from_options(face_options)
 
     base_mask = None
     base_anchors = None
     frame_count = 0
-    current_color = None  # BGR tuple or None
+    current_color = None
+    smooth_matrix = None
+    SMOOTH_FACTOR = 0.85
 
     while True:
         try:
@@ -162,7 +171,6 @@ def stream(ws):
                 break
             msg = json.loads(raw)
 
-            # Update selected color if sent
             if "color_bgr" in msg:
                 current_color = tuple(msg["color_bgr"]) if msg["color_bgr"] else None
 
@@ -181,16 +189,22 @@ def stream(ws):
                 face_landmarks = result.face_landmarks[0]
                 current_anchors = get_anchors(face_landmarks, w, h)
 
-                need_reseg = (base_mask is None) or (frame_count % RESEG_INTERVAL == 0)
+                need_reseg = (base_mask is None) or (frame_count % 60 == 0)
 
                 if need_reseg:
                     base_mask = get_hair_mask(frame)
                     base_anchors = current_anchors.copy()
+                    smooth_matrix = None
                     display_mask = base_mask
                 else:
                     transform_matrix, _ = cv2.estimateAffinePartial2D(base_anchors, current_anchors)
                     if transform_matrix is not None:
-                        display_mask = cv2.warpAffine(base_mask, transform_matrix, (w, h))
+                        if smooth_matrix is None:
+                            smooth_matrix = transform_matrix
+                        else:
+                            smooth_matrix = (SMOOTH_FACTOR * smooth_matrix +
+                                           (1 - SMOOTH_FACTOR) * transform_matrix)
+                        display_mask = cv2.warpAffine(base_mask, smooth_matrix, (w, h))
                     else:
                         display_mask = base_mask
 
@@ -209,7 +223,6 @@ def stream(ws):
 
 @app.route('/hairstyle', methods=['POST'])
 def hairstyle():
-    from flask import request, jsonify
     data = request.json
     frame = decode_frame(data['frame'])
     hairstyle_name = data['hairstyle']
