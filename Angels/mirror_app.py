@@ -15,44 +15,246 @@ HAIRSTYLES = [
     "straight long hair", "undercut fade", "long dreadlocks", "buzz cut",
 ]
 
-PRESETS = [
-    ("Black",   (20, 20, 20)),
-    ("Brown",   (30, 80, 130)),
-    ("Blonde",  (80, 200, 255)),
-    ("Auburn",  (20, 60, 160)),
-    ("Gray",    (160, 160, 160)),
-    ("White",   (240, 240, 240)),
+COLOR_FAMILIES = [
+    ("Black",     (26, 26, 26)),
+    ("Brown",     (42, 58, 107)),
+    ("Blonde",    (67, 168, 212)),
+    ("Auburn",    (26, 58, 139)),
+    ("Copper",    (30, 90, 185)),
+    ("Red",       (43, 57, 192)),
+    ("Rose Gold", (145, 155, 220)),
+    ("Pink",      (140, 30, 233)),
+    ("Purple",    (190, 47, 123)),
+    ("Blue",      (192, 101, 21)),
+    ("Teal",      (130, 160, 20)),
+    ("Green",     (30, 160, 30)),
+    ("Orange",    (20, 120, 220)),
+    ("Gray",      (158, 158, 158)),
+    ("White",     (245, 245, 245)),
 ]
 
+COLOR_SHADES = {
+    "Black": [
+        ("Jet Black",        (10, 10, 10)),
+        ("Blue Black",       (20, 10, 8)),
+        ("Soft Black",       (30, 25, 22)),
+        ("Natural Black",    (25, 20, 18)),
+        ("Off Black",        (42, 38, 35)),
+        ("Blue-Black Noir",  (15, 8, 5)),
+    ],
+    "Brown": [
+        ("Espresso",         (3, 21, 44)),
+        ("Dark Choc",        (13, 31, 62)),
+        ("Chestnut",         (40, 60, 120)),
+        ("Medium Brown",     (48, 74, 122)),
+        ("Warm Chestnut",    (35, 65, 140)),
+        ("Caramel Brown",    (60, 100, 160)),
+        ("Light Brown",      (74, 102, 160)),
+        ("Mushroom",         (90, 110, 145)),
+        ("Cendre Brown",     (85, 100, 130)),
+        ("Mochaccino",       (30, 55, 100)),
+        ("Truffle",          (45, 70, 110)),
+        ("Toffee",           (55, 90, 155)),
+    ],
+    "Blonde": [
+        ("Platinum",         (210, 230, 240)),
+        ("Pearl Blonde",     (195, 220, 235)),
+        ("Ash Blonde",       (169, 197, 212)),
+        ("Champagne",        (150, 195, 220)),
+        ("Dark Ash",         (130, 165, 190)),
+        ("Sandy Blonde",     (120, 175, 210)),
+        ("Honey Blonde",     (80, 175, 215)),
+        ("Golden Blonde",    (60, 160, 210)),
+        ("Warm Golden",      (45, 140, 195)),
+        ("Caramel Blonde",   (70, 150, 200)),
+        ("Dirty Blonde",     (100, 145, 175)),
+        ("Strawberry",       (105, 145, 225)),
+    ],
+    "Auburn": [
+        ("Light Auburn",     (70, 110, 195)),
+        ("Golden Auburn",    (55, 100, 185)),
+        ("Auburn",           (45, 80, 160)),
+        ("Deep Auburn",      (30, 60, 130)),
+        ("Russet",           (35, 80, 150)),
+        ("Mahogany",         (32, 55, 105)),
+        ("Warm Mahogany",    (40, 65, 120)),
+        ("Rich Auburn",      (28, 55, 125)),
+        ("Dark Auburn",      (20, 45, 110)),
+        ("Chestnut Auburn",  (50, 85, 165)),
+    ],
+    "Copper": [
+        ("Light Copper",     (65, 130, 225)),
+        ("Copper",           (51, 115, 200)),
+        ("Golden Copper",    (40, 110, 210)),
+        ("Rose Copper",      (100, 120, 210)),
+        ("Bright Copper",    (35, 100, 220)),
+        ("Deep Copper",      (30, 85, 180)),
+        ("Copper Brown",     (40, 90, 165)),
+        ("Dark Copper",      (25, 70, 150)),
+    ],
+    "Red": [
+        ("Light Red",        (60, 80, 220)),
+        ("Bright Red",       (50, 50, 210)),
+        ("Crimson",          (43, 57, 192)),
+        ("Cherry Red",       (38, 50, 169)),
+        ("Deep Red",         (33, 43, 146)),
+        ("Dark Red",         (25, 35, 130)),
+        ("Burgundy",         (35, 20, 110)),
+        ("Deep Burgundy",    (20, 12, 85)),
+        ("Mahogany Red",     (30, 40, 140)),
+        ("Garnet",           (25, 25, 105)),
+        ("Wine Red",         (30, 15, 100)),
+        ("Ruby Red",         (40, 30, 160)),
+    ],
+    "Rose Gold": [
+        ("Light Rose Gold",  (170, 175, 235)),
+        ("Rose Gold",        (145, 155, 220)),
+        ("Warm Rose Gold",   (130, 145, 215)),
+        ("Deep Rose Gold",   (110, 130, 200)),
+        ("Copper Rose",      (120, 140, 210)),
+        ("Blush Gold",       (155, 165, 230)),
+        ("Dusty Rose Gold",  (135, 140, 205)),
+        ("Pink Gold",        (140, 150, 225)),
+    ],
+    "Pink": [
+        ("Pastel Pink",      (195, 182, 255)),
+        ("Baby Pink",        (185, 167, 244)),
+        ("Rose Gold Pink",   (160, 155, 240)),
+        ("Dusty Rose",       (130, 130, 210)),
+        ("Bubblegum",        (160, 140, 255)),
+        ("Hot Pink",         (100, 30, 233)),
+        ("Rose",             (130, 30, 225)),
+        ("Fuchsia",          (88, 24, 194)),
+        ("Deep Pink",        (70, 20, 180)),
+        ("Magenta",          (80, 25, 200)),
+        ("Electric Pink",    (60, 15, 220)),
+        ("Flamingo",         (150, 120, 245)),
+    ],
+    "Purple": [
+        ("Lavender",         (215, 157, 179)),
+        ("Lilac",            (205, 155, 195)),
+        ("Mauve",            (175, 120, 175)),
+        ("Amethyst",         (175, 89, 155)),
+        ("Violet",           (155, 31, 123)),
+        ("Purple",           (150, 47, 123)),
+        ("Deep Violet",      (120, 25, 100)),
+        ("Plum",             (90, 27, 106)),
+        ("Deep Plum",        (65, 15, 85)),
+        ("Eggplant",         (50, 12, 70)),
+        ("Grape",            (100, 30, 110)),
+        ("Orchid",           (160, 80, 160)),
+    ],
+    "Blue": [
+        ("Ice Blue",         (235, 200, 120)),
+        ("Baby Blue",        (230, 185, 100)),
+        ("Sky Blue",         (220, 170, 80)),
+        ("Ocean Blue",       (200, 140, 40)),
+        ("Cobalt",           (185, 120, 20)),
+        ("Sapphire",         (170, 100, 10)),
+        ("Royal Blue",       (155, 80, 5)),
+        ("Midnight Blue",    (70, 20, 5)),
+        ("Navy Blue",        (50, 10, 5)),
+        ("Denim Blue",       (140, 100, 30)),
+        ("Petrol Blue",      (110, 90, 15)),
+        ("Electric Blue",    (200, 150, 0)),
+    ],
+    "Teal": [
+        ("Light Teal",       (180, 180, 10)),
+        ("Mint Teal",        (160, 190, 20)),
+        ("Teal",             (130, 160, 10)),
+        ("Deep Teal",        (100, 130, 5)),
+        ("Emerald Teal",     (80, 140, 10)),
+        ("Dark Teal",        (60, 100, 5)),
+        ("Petrol Teal",      (90, 110, 10)),
+        ("Teal Blue",        (120, 150, 15)),
+    ],
+    "Green": [
+        ("Mint Green",       (140, 210, 80)),
+        ("Pastel Green",     (120, 200, 70)),
+        ("Forest Green",     (30, 120, 20)),
+        ("Emerald",          (20, 150, 30)),
+        ("Olive Green",      (30, 110, 50)),
+        ("Dark Green",       (10, 90, 15)),
+        ("Lime Green",       (50, 200, 50)),
+        ("Sage Green",       (80, 150, 80)),
+    ],
+    "Orange": [
+        ("Peach",            (120, 160, 240)),
+        ("Light Orange",     (80, 140, 240)),
+        ("Orange",           (30, 120, 230)),
+        ("Tangerine",        (20, 110, 225)),
+        ("Burnt Orange",     (15, 90, 195)),
+        ("Pumpkin",          (10, 100, 210)),
+        ("Deep Orange",      (5, 80, 185)),
+        ("Amber",            (40, 130, 220)),
+    ],
+    "Gray": [
+        ("Silver",           (200, 200, 200)),
+        ("Pearl Gray",       (190, 190, 195)),
+        ("Ash Gray",         (178, 180, 182)),
+        ("Cool Gray",        (165, 165, 170)),
+        ("Steel Gray",       (140, 140, 145)),
+        ("Slate Gray",       (120, 120, 128)),
+        ("Salt & Pepper",    (140, 140, 140)),
+        ("Graphite",         (90, 90, 95)),
+        ("Charcoal",         (65, 65, 70)),
+        ("Smoke",            (210, 210, 210)),
+    ],
+    "White": [
+        ("Pure White",       (255, 255, 255)),
+        ("Snow White",       (250, 250, 255)),
+        ("Pearl White",      (240, 240, 245)),
+        ("Platinum",         (230, 228, 226)),
+        ("Icy White",        (235, 238, 245)),
+        ("Creamy White",     (225, 225, 215)),
+    ],
+}
+
+# UI state
 current_color_bgr = None
 current_color_name = "Original"
 status_msg = "Connecting..."
 status_color = (255, 255, 255)
-mode = "live"
-result_frame = None       # streamed live color frame
-hairstyle_result = None   # static generated hairstyle frame
+mode = "live"           # live, result
+ui_state = "families"   # families, shades
+selected_family = None
+result_frame = None
+hairstyle_result = None
 processing = False
 last_frame = None
 ws_connected = False
+ws_app = None
 
-SPECTRUM_X = 10
-SPECTRUM_H = 28
-SPECTRUM_W = 500
+# Layout constants
+BOTTOM_H = 200
+CIRCLE_R = 28
+CIRCLE_GAP = 14
 
-def build_spectrum(w=500, h=28):
-    bar = np.zeros((h, w, 3), dtype=np.uint8)
-    for x in range(w):
-        hue = int(x / w * 180)
-        hsv_pixel = np.uint8([[[hue, 220, 220]]])
-        bgr = cv2.cvtColor(hsv_pixel, cv2.COLOR_HSV2BGR)[0][0]
-        bar[:, x] = bgr
-    return bar
+def build_family_positions(w, h):
+    """Calculate positions for color family circles"""
+    n = len(COLOR_FAMILIES)
+    total_w = n * (CIRCLE_R * 2 + CIRCLE_GAP) - CIRCLE_GAP
+    start_x = (w - total_w) // 2
+    y = h - BOTTOM_H + 60
+    positions = []
+    for i in range(n):
+        cx = start_x + i * (CIRCLE_R * 2 + CIRCLE_GAP) + CIRCLE_R
+        positions.append((cx, y))
+    return positions
 
-spectrum_img = build_spectrum(SPECTRUM_W, SPECTRUM_H)
-
-def get_color_from_spectrum(x):
-    x = max(0, min(x - SPECTRUM_X, SPECTRUM_W - 1))
-    return tuple(int(c) for c in spectrum_img[SPECTRUM_H // 2, x])
+def build_shade_positions(w, h, family):
+    """Calculate positions for shade circles"""
+    shades = COLOR_SHADES[family]
+    n = len(shades)
+    cols = min(n, 6)
+    total_w = cols * (CIRCLE_R * 2 + CIRCLE_GAP) - CIRCLE_GAP
+    start_x = (w - total_w) // 2
+    y = h - BOTTOM_H + 60
+    positions = []
+    for i, (name, bgr) in enumerate(shades):
+        cx = start_x + i * (CIRCLE_R * 2 + CIRCLE_GAP) + CIRCLE_R
+        positions.append((cx, y, name, bgr))
+    return positions
 
 def encode_frame(frame, quality=60):
     _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
@@ -62,9 +264,6 @@ def decode_frame(frame_b64):
     frame_bytes = base64.b64decode(frame_b64)
     nparr = np.frombuffer(frame_bytes, np.uint8)
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-# --- WebSocket streaming thread ---
-ws_app = None
 
 def on_ws_message(ws, message):
     global result_frame
@@ -84,9 +283,8 @@ def on_ws_open(ws):
 def on_ws_close(ws, *args):
     global ws_connected, status_msg, status_color
     ws_connected = False
-    status_msg = "Disconnected - reconnecting..."
+    status_msg = "Reconnecting..."
     status_color = (0, 0, 255)
-    print("WebSocket closed")
 
 def on_ws_error(ws, error):
     print(f"WebSocket error: {error}")
@@ -104,11 +302,10 @@ def start_websocket():
             )
             ws_app.run_forever()
         except Exception as e:
-            print(f"WebSocket connection failed: {e}")
-        time.sleep(2)  # retry delay
+            print(f"WebSocket failed: {e}")
+        time.sleep(2)
 
 def send_frame_to_stream(frame):
-    """Called continuously from main loop to stream frames"""
     if ws_connected and ws_app and ws_app.sock:
         try:
             payload = {
@@ -130,7 +327,8 @@ def request_hairstyle(frame, hairstyle_name):
             timeout=120
         )
         if response.status_code == 200:
-            hairstyle_result = decode_frame(response.json()["frame"])
+            haystyle_result = decode_frame(response.json()["frame"])
+            hairstyle_result = haystyle_result
             mode = "result"
             status_msg = f"Showing: {hairstyle_name}"
             status_color = (0, 255, 150)
@@ -142,139 +340,178 @@ def request_hairstyle(frame, hairstyle_name):
         status_color = (0, 0, 255)
     processing = False
 
-def mouse_click(event, x, y, flags, param):
-    global current_color_bgr, current_color_name, processing, last_frame, mode
-    if event != cv2.EVENT_LBUTTONDOWN or last_frame is None:
-        return
-
-    h, w = last_frame.shape[:2]
-    bottom_panel_y = h - 180
-
-    spec_y = bottom_panel_y + 45
-    if spec_y <= y <= spec_y + SPECTRUM_H and SPECTRUM_X <= x <= SPECTRUM_X + SPECTRUM_W:
-        current_color_bgr = get_color_from_spectrum(x)
-        current_color_name = "Custom"
-        mode = "live"
-        return
-
-    preset_y = bottom_panel_y + 85
-    preset_btn_w = 80
-    for i, (name, color) in enumerate(PRESETS):
-        bx = SPECTRUM_X + i * (preset_btn_w + 6)
-        if bx <= x <= bx + preset_btn_w and preset_y <= y <= preset_y + 32:
-            current_color_bgr = color
-            current_color_name = name
-            mode = "live"
-            return
-
-    orig_x = SPECTRUM_X + len(PRESETS) * (preset_btn_w + 6)
-    if orig_x <= x <= orig_x + preset_btn_w and preset_y <= y <= preset_y + 32:
-        current_color_bgr = None
-        current_color_name = "Original"
-        mode = "live"
-        return
-
-    if not processing:
-        hs_w, hs_h = 115, 34
-        hs_x_start = w - 4 * (hs_w + 8) - 10
-        hs_y_start = bottom_panel_y + 10
-        for i, style in enumerate(HAIRSTYLES):
-            col = i % 4
-            row = i // 4
-            bx = hs_x_start + col * (hs_w + 8)
-            by = hs_y_start + row * (hs_h + 6)
-            if bx <= x <= bx + hs_w and by <= y <= by + hs_h:
-                processing = True
-                threading.Thread(target=request_hairstyle, args=(last_frame.copy(), style)).start()
-                return
-
-    if mode == "result":
-        if 10 <= x <= 120 and 80 <= y <= 118:
-            mode = "live"
+def draw_circle_filled(ui, cx, cy, r, bgr_color, selected=False):
+    """Draw a filled circle swatch"""
+    cv2.circle(ui, (cx, cy), r, bgr_color, -1)
+    border_color = (255, 255, 255) if selected else (80, 80, 80)
+    border_thickness = 3 if selected else 1
+    cv2.circle(ui, (cx, cy), r, border_color, border_thickness)
 
 def draw_ui(frame):
+    global ui_state, selected_family
     h, w = frame.shape[:2]
     ui = frame.copy()
 
+    # Top bar
     cv2.rectangle(ui, (0, 0), (w, 65), (15, 15, 15), -1)
     cv2.putText(ui, "ANGELS", (20, 46), cv2.FONT_HERSHEY_DUPLEX, 1.3, (200, 160, 255), 2)
-
     cv2.putText(ui, status_msg, (160, 43), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 1)
 
-    live_dot_color = (0, 255, 0) if ws_connected else (0, 0, 255)
-    cv2.circle(ui, (w - 30, 32), 8, live_dot_color, -1)
-    cv2.putText(ui, "LIVE" if ws_connected else "OFF", (w - 90, 38),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, live_dot_color, 1)
+    # Live indicator dot
+    dot_color = (0, 255, 0) if ws_connected else (0, 0, 255)
+    cv2.circle(ui, (w - 25, 32), 8, dot_color, -1)
+    cv2.putText(ui, "LIVE" if ws_connected else "OFF", (w - 85, 38),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, dot_color, 1)
 
     if processing:
-        cv2.putText(ui, "Generating...", (w - 250, 43), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
+        cv2.putText(ui, "Generating...", (w - 260, 43),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
 
-    bottom_panel_y = h - 180
+    # Bottom panel
+    cv2.rectangle(ui, (0, h - BOTTOM_H), (w, h), (15, 15, 15), -1)
+    cv2.line(ui, (0, h - BOTTOM_H), (w, h - BOTTOM_H), (50, 50, 50), 1)
 
-    cv2.rectangle(ui, (0, bottom_panel_y), (w, h), (15, 15, 15), -1)
-    cv2.line(ui, (0, bottom_panel_y), (w, bottom_panel_y), (50, 50, 50), 1)
+    if ui_state == "families":
+        # Label
+        cv2.putText(ui, "HAIR COLOR", (20, h - BOTTOM_H + 22),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
 
-    spec_y = bottom_panel_y + 45
-    cv2.putText(ui, "HAIR COLOR (LIVE)", (SPECTRUM_X, bottom_panel_y + 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1)
+        # Color family circles
+        positions = build_family_positions(w, h)
+        for i, (name, bgr) in enumerate(COLOR_FAMILIES):
+            cx, cy = positions[i]
+            is_selected = name == selected_family
+            draw_circle_filled(ui, cx, cy, CIRCLE_R, bgr, is_selected)
+            cv2.putText(ui, name[:6], (cx - 18, cy + CIRCLE_R + 16),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, (180, 180, 180), 1)
 
-    ui[spec_y:spec_y + SPECTRUM_H, SPECTRUM_X:SPECTRUM_X + SPECTRUM_W] = spectrum_img
+        # Original button
+        orig_x = 20
+        orig_y = h - BOTTOM_H + 110
+        is_orig = current_color_name == "Original"
+        cv2.rectangle(ui, (orig_x, orig_y), (orig_x + 90, orig_y + 30),
+                      (200, 160, 255) if is_orig else (60, 60, 60), -1)
+        cv2.rectangle(ui, (orig_x, orig_y), (orig_x + 90, orig_y + 30), (100, 100, 100), 1)
+        cv2.putText(ui, "Original", (orig_x + 8, orig_y + 21),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                    (20, 20, 20) if is_orig else (200, 200, 200), 1)
 
-    cv2.rectangle(ui, (SPECTRUM_X, spec_y), (SPECTRUM_X + SPECTRUM_W, spec_y + SPECTRUM_H),
-                  (100, 100, 100), 1)
+        # Hairstyle buttons
+        hs_w, hs_h = 105, 32
+        hs_cols = 4
+        hs_x_start = w - hs_cols * (hs_w + 8) - 10
+        cv2.putText(ui, "HAIRSTYLE TRY-ON", (hs_x_start, h - BOTTOM_H + 22),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+        for i, style in enumerate(HAIRSTYLES):
+            col = i % hs_cols
+            row = i // hs_cols
+            bx = hs_x_start + col * (hs_w + 8)
+            by = h - BOTTOM_H + 35 + row * (hs_h + 6)
+            cv2.rectangle(ui, (bx, by), (bx + hs_w, by + hs_h), (50, 50, 50), -1)
+            cv2.rectangle(ui, (bx, by), (bx + hs_w, by + hs_h), (80, 80, 80), 1)
+            cv2.putText(ui, style[:13], (bx + 5, by + 21),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, (210, 210, 210), 1)
 
-    if current_color_name == "Custom" and current_color_bgr:
-        bgr = current_color_bgr
-        hue_val = cv2.cvtColor(np.uint8([[list(bgr)]]), cv2.COLOR_BGR2HSV)[0][0][0]
-        dot_x = SPECTRUM_X + int(hue_val / 180 * SPECTRUM_W)
-        cv2.circle(ui, (dot_x, spec_y + SPECTRUM_H // 2), 8, (255, 255, 255), 2)
+    elif ui_state == "shades":
+        # Back button
+        cv2.rectangle(ui, (10, h - BOTTOM_H + 8), (80, h - BOTTOM_H + 34), (50, 50, 50), -1)
+        cv2.putText(ui, "< Back", (15, h - BOTTOM_H + 26),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 160, 255), 1)
 
-    preset_y = bottom_panel_y + 85
-    preset_btn_w = 80
-    cv2.putText(ui, "NATURAL TONES", (SPECTRUM_X, preset_y - 6),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120, 120, 120), 1)
+        cv2.putText(ui, f"{selected_family} shades", (95, h - BOTTOM_H + 26),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
-    all_presets = PRESETS + [("Original", None)]
-    for i, (name, color) in enumerate(all_presets):
-        bx = SPECTRUM_X + i * (preset_btn_w + 6)
-        is_selected = name == current_color_name
-        border_color = (200, 160, 255) if is_selected else (70, 70, 70)
-        cv2.rectangle(ui, (bx, preset_y), (bx + preset_btn_w, preset_y + 32), border_color,
-                      2 if is_selected else 1)
-        if color:
-            cv2.rectangle(ui, (bx + 2, preset_y + 2), (bx + 18, preset_y + 30), color, -1)
-        cv2.putText(ui, name, (bx + (4 if color else 8), preset_y + 22),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.38,
-                    (200, 160, 255) if is_selected else (200, 200, 200), 1)
+        # Shade circles
+        shade_positions = build_shade_positions(w, h, selected_family)
+        for cx, cy, name, bgr in shade_positions:
+            is_selected = bgr == current_color_bgr
+            draw_circle_filled(ui, cx, cy, CIRCLE_R + 4, bgr, is_selected)
+            # Two-line name
+            words = name.split()
+            if len(words) > 1:
+                cv2.putText(ui, words[0], (cx - 20, cy + CIRCLE_R + 18),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.32, (180, 180, 180), 1)
+                cv2.putText(ui, ' '.join(words[1:]), (cx - 20, cy + CIRCLE_R + 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.32, (180, 180, 180), 1)
+            else:
+                cv2.putText(ui, name, (cx - 20, cy + CIRCLE_R + 18),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.32, (180, 180, 180), 1)
 
-    hs_w, hs_h = 115, 34
-    hs_x_start = w - 4 * (hs_w + 8) - 10
-    hs_y_start = bottom_panel_y + 10
-
-    cv2.putText(ui, "HAIRSTYLE TRY-ON", (hs_x_start, bottom_panel_y + 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1)
-
-    for i, style in enumerate(HAIRSTYLES):
-        col = i % 4
-        row = i // 4
-        bx = hs_x_start + col * (hs_w + 8)
-        by = hs_y_start + row * (hs_h + 6)
-        cv2.rectangle(ui, (bx, by), (bx + hs_w, by + hs_h), (70, 70, 70), 1)
-        cv2.putText(ui, style[:14], (bx + 5, by + 22),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.33, (220, 220, 220), 1)
-
+    # Back button from result
     if mode == "result":
         cv2.rectangle(ui, (10, 75), (120, 115), (40, 40, 40), -1)
         cv2.rectangle(ui, (10, 75), (120, 115), (100, 100, 100), 1)
         cv2.putText(ui, "< BACK", (18, 103), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 160, 255), 1)
 
-    cv2.putText(ui, "Click spectrum for live color | Click hairstyle to try on | Q: quit",
-                (10, h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 80, 80), 1)
-
     return ui
 
+def mouse_click(event, x, y, flags, param):
+    global current_color_bgr, current_color_name, processing
+    global last_frame, mode, ui_state, selected_family
 
-# --- Start WebSocket thread ---
+    if event != cv2.EVENT_LBUTTONDOWN or last_frame is None:
+        return
+
+    h, w = last_frame.shape[:2]
+
+    # Back from result
+    if mode == "result" and 10 <= x <= 120 and 75 <= y <= 115:
+        mode = "live"
+        return
+
+    if ui_state == "families":
+        # Original button
+        orig_x, orig_y = 20, h - BOTTOM_H + 110
+        if orig_x <= x <= orig_x + 90 and orig_y <= y <= orig_y + 30:
+            current_color_bgr = None
+            current_color_name = "Original"
+            mode = "live"
+            return
+
+        # Color family circles
+        positions = build_family_positions(w, h)
+        for i, (name, bgr) in enumerate(COLOR_FAMILIES):
+            cx, cy = positions[i]
+            dist = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            if dist <= CIRCLE_R + 5:
+                selected_family = name
+                ui_state = "shades"
+                return
+
+        # Hairstyle buttons
+        if not processing:
+            hs_w, hs_h = 105, 32
+            hs_cols = 4
+            hs_x_start = w - hs_cols * (hs_w + 8) - 10
+            for i, style in enumerate(HAIRSTYLES):
+                col = i % hs_cols
+                row = i // hs_cols
+                bx = hs_x_start + col * (hs_w + 8)
+                by = h - BOTTOM_H + 35 + row * (hs_h + 6)
+                if bx <= x <= bx + hs_w and by <= y <= by + hs_h:
+                    processing = True
+                    threading.Thread(target=request_hairstyle,
+                                     args=(last_frame.copy(), style)).start()
+                    return
+
+    elif ui_state == "shades":
+        # Back button
+        if 10 <= x <= 80 and h - BOTTOM_H + 8 <= y <= h - BOTTOM_H + 34:
+            ui_state = "families"
+            return
+
+        # Shade circles
+        shade_positions = build_shade_positions(w, h, selected_family)
+        for cx, cy, name, bgr in shade_positions:
+            dist = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            if dist <= CIRCLE_R + 9:
+                current_color_bgr = bgr
+                current_color_name = name
+                mode = "live"
+                return
+
+
+# Start WebSocket thread
 ws_thread = threading.Thread(target=start_websocket, daemon=True)
 ws_thread.start()
 
@@ -298,7 +535,7 @@ while True:
     h, w = frame.shape[:2]
 
     if mode == "live":
-        send_frame_to_stream(frame)  # stream every frame for live color preview
+        send_frame_to_stream(frame)
         if result_frame is not None and ws_connected:
             display = cv2.resize(result_frame, (w, h))
         else:
@@ -315,6 +552,10 @@ while True:
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
         break
+    elif key == ord('b'):
+        mode = "live"
+        status_msg = "Live mode"
+        status_color = (255, 255, 255)
 
 cap.release()
 cv2.destroyAllWindows()
