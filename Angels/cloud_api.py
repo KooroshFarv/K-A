@@ -249,6 +249,118 @@ def apply_lut(frame, mask, lut):
     return result.clip(0, 255).astype(np.uint8)
 
 
+
+def detect_ambient_light(frame, mask):
+    """
+    Detect ambient lighting color and intensity from the background/skin areas.
+    Returns a lighting correction factor to apply to hair color rendering.
+    
+    Salons have varying lighting — warm incandescent, cool LED, natural daylight.
+    Each changes how hair color appears. This function samples the scene's
+    ambient light and adjusts the LUT accordingly so colors look correct
+    under any salon lighting condition.
+    """
+    h, w = frame.shape[:2]
+
+
+    bg_samples = []
+
+    corner_size = min(h, w) // 8
+    regions = [
+        frame[0:corner_size, 0:corner_size],
+        frame[0:corner_size, w-corner_size:w],
+        frame[h-corner_size:h, 0:corner_size],
+        frame[h-corner_size:h, w-corner_size:w],
+        frame[0:corner_size, w//4:3*w//4],
+    ]
+
+    for region in regions:
+        if region.size > 0:
+            bg_samples.append(region.reshape(-1, 3))
+
+    if not bg_samples:
+        return 1.0, 0, 0  # no adaptation
+
+    bg_pixels = np.vstack(bg_samples).astype(np.float32)
+
+    bg_lab = cv2.cvtColor(
+        bg_pixels.reshape(-1, 1, 3).astype(np.uint8),
+        cv2.COLOR_BGR2Lab
+    ).reshape(-1, 3).astype(np.float32)
+
+
+    avg_L = np.median(bg_lab[:, 0])    # overall brightness
+    avg_a = np.median(bg_lab[:, 1])    # green/red cast
+    avg_b = np.median(bg_lab[:, 2])    # warm (high) vs cool (low) lighting
+
+
+    brightness_factor = np.clip(avg_L / 60.0, 0.7, 1.3)  # dim vs bright room
+    ws_val = np.clip((avg_b - 128) / 20.0, -1.0, 1.0)  # warm/cool shift
+    green_shift = np.clip((avg_a - 128) / 20.0, -1.0, 1.0)   # green/magenta cast
+
+    return brightness_factor, ws_val, green_shift
+
+
+def build_lut_with_lighting(color_bgr, hair_type="dark",
+                             brightness_factor=1.0, ws_val=0.0, green_shift=0.0):
+    """
+    Extended LUT builder that incorporates ambient lighting correction.
+    Same as build_lut but adjusts the output colors based on scene lighting.
+    
+    Under warm salon lights: colors shift slightly warmer
+    Under cool LED lights: colors shift slightly cooler
+    Under dim lighting: colors are slightly lifted to compensate
+    """
+    if color_bgr is None:
+        return None
+
+    color_pixel = np.uint8([[list(color_bgr)]])
+    color_hsv = cv2.cvtColor(color_pixel, cv2.COLOR_BGR2HSV)[0][0].astype(np.float32)
+    target_hue = color_hsv[0]
+    target_sat = color_hsv[1]
+    target_val = color_hsv[2]
+
+
+    hue_shift = ws_val * 8.0
+    target_hue = np.clip(target_hue + hue_shift, 0, 179)
+
+    sat_adjust = brightness_factor * 0.95
+    target_sat = np.clip(target_sat * sat_adjust, 0, 255)
+
+    lut = np.zeros((256, 3), dtype=np.float32)
+
+    for i in range(256):
+        brightness = i / 255.0
+
+        out_hue = target_hue
+
+        if brightness > 0.78:
+            out_sat = target_sat * (1.0 - brightness) * 2.0
+        else:
+            out_sat = target_sat * (0.4 + 0.6 * brightness)
+
+        if hair_type == "dark" and target_val > 150:
+            lift = (target_val / 255.0) * 0.65
+            out_val = brightness * (1.0 - lift) + lift
+            out_val = min(out_val * 1.1, 1.0)
+        elif hair_type == "light" and target_val < 100:
+            out_val = brightness * 0.7 + (target_val / 255.0) * 0.3
+        else:
+            out_val = brightness * 0.85 + (target_val / 255.0) * 0.15
+
+        out_val = np.clip(out_val * brightness_factor, 0, 1.0)
+
+        out_hue = np.clip(out_hue, 0, 179)
+        out_sat = np.clip(out_sat, 0, 255)
+        out_val = np.clip(out_val * 255, 0, 255)
+
+        hsv_pixel = np.uint8([[[out_hue, out_sat, out_val]]])
+        bgr = cv2.cvtColor(hsv_pixel, cv2.COLOR_HSV2BGR)[0][0]
+        lut[i] = bgr.astype(np.float32)
+
+    return lut
+
+
 def apply_color(frame, mask, color_bgr, hair_type="medium"):
     """
     Main color application — builds LUT then applies it.
@@ -274,13 +386,14 @@ def stream(ws):
 
     base_mask = None
     base_anchors = None
+    base_gray = None
     frame_count = 0
     current_color = None
     smooth_matrix = None
     SMOOTH_FACTOR = 0.85
-    current_lut = None      # cached LUT — only rebuilds when color changes
-    last_color = None       # track last color to detect changes
-    hair_type = "medium"    # detected hair type — updates on reseg
+    current_lut = None
+    last_color = None
+    hair_type = "medium"
 
     while True:
         try:
@@ -291,17 +404,30 @@ def stream(ws):
 
             if "color_bgr" in msg:
                 current_color = tuple(msg["color_bgr"]) if msg["color_bgr"] else None
-                # Rebuild LUT only when color changes
-                if current_color != last_color:
-                    current_lut = build_lut(current_color, hair_type) if current_color else None
-                    last_color = current_color
+                if current_color and base_mask is not None and 'frame' in dir():
+                    bf, ws_val, gs = detect_ambient_light(frame, base_mask)
+                    current_lut = build_lut_with_lighting(current_color, hair_type, bf, ws_val, gs)
+                elif current_color:
+                    current_lut = build_lut(current_color, hair_type)
+                else:
+                    current_lut = None
+                last_color = current_color        
 
             if "frame" not in msg:
                 continue
 
+            
+
             frame = decode_frame(msg["frame"])
             h, w = frame.shape[:2]
             frame_count += 1
+
+
+            if frame_count % 30 == 0 and base_mask is not None and current_color is not None:
+                bf, ws_val, gs = detect_ambient_light(frame, base_mask)
+                current_lut = build_lut_with_lighting(current_color, hair_type, bf, ws_val, gs)  
+
+
 
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
@@ -310,16 +436,19 @@ def stream(ws):
             if result.face_landmarks:
                 face_landmarks = result.face_landmarks[0]
                 current_anchors = get_anchors(face_landmarks, w, h)
+                current_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
                 need_reseg = (base_mask is None) or (frame_count % 60 == 0)
 
                 if need_reseg:
+                    # Full re-segmentation
                     base_mask = get_hair_mask(frame)
                     base_anchors = current_anchors.copy()
+                    base_gray = current_gray.copy()
                     smooth_matrix = None
                     display_mask = base_mask
 
-                    # Update hair type after reseg and rebuild LUT
+                    # Update hair type and rebuild LUT
                     hair_pixels = frame[base_mask > 0.3]
                     if len(hair_pixels) > 100:
                         hair_hsv = cv2.cvtColor(
@@ -337,20 +466,73 @@ def stream(ws):
                             hair_type = "light"
                         else:
                             hair_type = "medium"
-                    # Rebuild LUT with updated hair type
                     if current_color:
-                        current_lut = build_lut(current_color, hair_type)
+                        bf, ws_val, gs = detect_ambient_light(frame, base_mask)
+                        current_lut = build_lut_with_lighting(current_color, hair_type, bf, ws_val, gs)
+
                 else:
-                    transform_matrix, _ = cv2.estimateAffinePartial2D(base_anchors, current_anchors)
-                    if transform_matrix is not None:
-                        if smooth_matrix is None:
-                            smooth_matrix = transform_matrix
+                    warped_mask = base_mask  # fallback
+
+                    if base_gray is not None:
+                        anchor_pts = base_anchors.reshape(-1, 1, 2).astype(np.float32)
+
+                        tracked_pts, status, _ = cv2.calcOpticalFlowPyrLK(
+                            base_gray,          # previous frame (grayscale)
+                            current_gray,       # current frame (grayscale)
+                            anchor_pts,         # points to track
+                            None,               # output points
+                            winSize=(21, 21),   # search window size
+                            maxLevel=3,         # pyramid levels (handles large movements)
+                            criteria=(
+                                cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+                                20, 0.01
+                            )
+                        )
+
+                        # Filter to only well-tracked points (status == 1)
+                        good_base = anchor_pts[status == 1]
+                        good_tracked = tracked_pts[status == 1]
+
+                        if len(good_base) >= 3:
+                            # Enough points tracked — compute affine transform
+                            # from optical flow results (more accurate than landmarks alone)
+                            transform_matrix, _ = cv2.estimateAffinePartial2D(
+                                good_base, good_tracked
+                            )
+
+                            if transform_matrix is not None:
+                                # Smooth the transform to reduce jitter
+                                if smooth_matrix is None:
+                                    smooth_matrix = transform_matrix
+                                else:
+                                    smooth_matrix = (
+                                        SMOOTH_FACTOR * smooth_matrix +
+                                        (1 - SMOOTH_FACTOR) * transform_matrix
+                                    )
+                                warped_mask = cv2.warpAffine(
+                                    base_mask, smooth_matrix, (w, h)
+                                )
                         else:
-                            smooth_matrix = (SMOOTH_FACTOR * smooth_matrix +
-                                           (1 - SMOOTH_FACTOR) * transform_matrix)
-                        display_mask = cv2.warpAffine(base_mask, smooth_matrix, (w, h))
-                    else:
-                        display_mask = base_mask
+                            # Fallback: use face landmark affine transform
+                            transform_matrix, _ = cv2.estimateAffinePartial2D(
+                                base_anchors, current_anchors
+                            )
+                            if transform_matrix is not None:
+                                if smooth_matrix is None:
+                                    smooth_matrix = transform_matrix
+                                else:
+                                    smooth_matrix = (
+                                        SMOOTH_FACTOR * smooth_matrix +
+                                        (1 - SMOOTH_FACTOR) * transform_matrix
+                                    )
+                                warped_mask = cv2.warpAffine(
+                                    base_mask, smooth_matrix, (w, h)
+                                )
+                        
+                        base_gray = current_gray.copy()
+                        base_anchors = current_anchors.copy()
+
+                    display_mask = warped_mask
 
                 # Apply color using cached LUT
                 if current_lut is not None:
