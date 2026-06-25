@@ -19,7 +19,6 @@ app = Flask(__name__)
 sock = Sock(app)
 
 API_KEY = os.environ.get("LIGHTX_API_KEY")
-# face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 # face mesh model
 MODEL_PATH = "face_landmarker.task"
@@ -176,29 +175,32 @@ def build_lut(color_bgr, hair_type="dark"):
         # --- Hue: always use target color's hue ---
         out_hue = target_hue
 
-        # --- Saturation: scale by brightness ---
-        # Very dark pixels get lower saturation (looks more natural)
-        # Very bright pixels (specular) get near-zero saturation
         if brightness > 0.78:
-            # Specular highlight — keep near white, don't tint
-            out_sat = target_sat * (1.0 - brightness) * 2.0
+            out_sat = target_sat * (1.0 - brightness) * 2.5
         else:
-            # Normal hair — scale saturation by brightness
-            # Brighter pixels get more saturation
-            out_sat = target_sat * (0.4 + 0.6 * brightness)
+            if hair_type == "dark" and target_val > 150:
+               out_sat = target_sat * (0.6 + 0.4 * brightness)
+            else:
+                out_sat = target_sat * (0.4 + 0.6 * brightness)   
 
-        # --- Value (brightness): depends on hair type and target ---
         if hair_type == "dark" and target_val > 150:
-            # Light color on dark hair — lift shadows significantly
-            # so white/blonde actually shows up on black hair
-            lift = (target_val / 255.0) * 0.65
-            out_val = brightness * (1.0 - lift) + lift
-            out_val = min(out_val * 1.1, 1.0)
-        elif hair_type == "light" and target_val < 100:
-            # Dark color on light hair — darken slightly
-            out_val = brightness * 0.7 + (target_val / 255.0) * 0.3
+            bleach_strength = min((target_val - 150) / 105.0, 0.55)
+            floor_lift = bleach_strength * 0.35
+            lifted = brightness * (1.0 - floor_lift) + floor_lift
+            out_val = lifted * 0.82 + (target_val / 255.0) * 0.18
+            out_val = min(out_val, 1.0)
+
+        elif hair_type == "light" and target_val < 80:
+            darken_strength = (80 - target_val) / 80.0
+            darkened_base = brightness * (1.0 - darken_strength * 0.5)
+            out_val = darkened_base * 0.8 + (target_val / 255.0) * 0.2
+        elif hair_type == "medium" and target_val > 180:
+            bleach_strength = (target_val - 180) / 75.0 * 0.6  # gentler lift
+            bleached_base = 0.5 + bleach_strength * 0.2
+            lifted = brightness * (1.0 - bleach_strength) + bleached_base * bleach_strength
+            out_val = lifted * 0.8 + (target_val / 255.0) * 0.2    
         else:
-            # Normal case — preserve original brightness with slight boost
+            # Normal case
             out_val = brightness * 0.85 + (target_val / 255.0) * 0.15
 
         # Clamp all values
@@ -215,36 +217,37 @@ def build_lut(color_bgr, hair_type="dark"):
 
 
 def apply_lut(frame, mask, lut):
-    """
-    Apply pre-calculated LUT to hair pixels.
-    For each hair pixel, look up its brightness in the LUT
-    and replace with the pre-calculated colored value.
-    This is a simple array lookup — extremely fast.
-    """
     if lut is None:
         return frame
 
     mask_smooth = np.clip(mask, 0, 1)
 
-    # Get brightness of each pixel (grayscale)
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # shape (H, W)
+    # Double-blur the mask for extra soft edges
+    # First blur already happened in get_hair_mask (31px)
+    # Second pass here softens the transition even further
+    mask_smooth = cv2.GaussianBlur(mask_smooth, (25, 25), 0)
 
-    # Look up each pixel's brightness in the LUT
-    # lut shape: (256, 3) — index by brightness value
-    colored = lut[gray]  # shape (H, W, 3) — instant lookup, no per-pixel math
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    colored = lut[gray]
 
-    # Specular highlight mask — preserve very bright spots
+    # Specular highlight mask
     specular = (gray > 200).astype(np.float32)
     specular = cv2.GaussianBlur(specular, (7, 7), 0)
     non_specular = 1.0 - specular
 
-    # Effective mask = hair region minus specular highlights
     effective_mask = mask_smooth * non_specular
-    mask_3ch = cv2.merge([effective_mask, effective_mask, effective_mask])
 
-    # Blend: colored hair where mask is active, original elsewhere
-    result = (frame.astype(np.float32) * (1 - mask_3ch * 0.92) +
-              colored * (mask_3ch * 0.92))
+    # Reduce opacity at soft edge areas — pixels with mask 0.0-0.5
+    # get proportionally less color to avoid harsh transitions
+    edge_factor = np.where(effective_mask < 0.5,
+                           effective_mask * 1.6,  # softer at edges
+                           effective_mask)
+    edge_factor = np.clip(edge_factor, 0, 1)
+
+    mask_3ch = cv2.merge([edge_factor, edge_factor, edge_factor])
+
+    result = (frame.astype(np.float32) * (1 - mask_3ch * 0.82) +
+              colored * (mask_3ch * 0.88))
 
     return result.clip(0, 255).astype(np.uint8)
 
@@ -289,9 +292,9 @@ def detect_ambient_light(frame, mask):
     ).reshape(-1, 3).astype(np.float32)
 
 
-    avg_L = np.median(bg_lab[:, 0])    # overall brightness
-    avg_a = np.median(bg_lab[:, 1])    # green/red cast
-    avg_b = np.median(bg_lab[:, 2])    # warm (high) vs cool (low) lighting
+    avg_L = np.median(bg_lab[:, 0]) 
+    avg_a = np.median(bg_lab[:, 1])
+    avg_b = np.median(bg_lab[:, 2]) 
 
 
     brightness_factor = np.clip(avg_L / 60.0, 0.7, 1.3)  # dim vs bright room
@@ -335,16 +338,30 @@ def build_lut_with_lighting(color_bgr, hair_type="dark",
         out_hue = target_hue
 
         if brightness > 0.78:
-            out_sat = target_sat * (1.0 - brightness) * 2.0
+            out_sat = target_sat * (1.0 - brightness) * 2.5
         else:
-            out_sat = target_sat * (0.4 + 0.6 * brightness)
+            if hair_type == "dark" and target_val > 150:
+                out_sat = target_sat * (0.6 + 0.4 * brightness)
+            else:
+                out_sat = target_sat * (0.4 + 0.6 * brightness)
 
         if hair_type == "dark" and target_val > 150:
-            lift = (target_val / 255.0) * 0.65
-            out_val = brightness * (1.0 - lift) + lift
-            out_val = min(out_val * 1.1, 1.0)
-        elif hair_type == "light" and target_val < 100:
-            out_val = brightness * 0.7 + (target_val / 255.0) * 0.3
+            bleach_strength = min((target_val - 150) / 105.0, 0.55)
+            floor_lift = bleach_strength * 0.35
+            lifted = brightness * (1.0 - floor_lift) + floor_lift
+            out_val = lifted * 0.82 + (target_val / 255.0) * 0.18
+            out_val = min(out_val, 1.0)
+
+
+        elif hair_type == "light" and target_val < 80:
+            darken_strength = (80 - target_val) / 80.0
+            darkened_base = brightness * (1.0 - darken_strength * 0.5)
+            out_val = darkened_base * 0.8 + (target_val / 255.0) * 0.2
+        elif hair_type == "medium" and target_val > 180:
+            bleach_strength = (target_val - 180) / 75.0 * 0.6
+            bleached_base = 0.5 + bleach_strength * 0.2
+            lifted = brightness * (1.0 - bleach_strength) + bleached_base * bleach_strength
+            out_val = lifted * 0.8 + (target_val / 255.0) * 0.2
         else:
             out_val = brightness * 0.85 + (target_val / 255.0) * 0.15
 
