@@ -68,9 +68,9 @@ def apply_color(frame, mask, color_bgr):
     return (frame.astype(np.float32) * (1 - mask_3ch) + tinted * mask_3ch).astype(np.uint8)
 
 base_mask = None
-base_anchors = None     
-current_color = (0, 0, 200)  
-RESEG_INTERVAL = 30   
+base_anchors = None
+current_color = (0, 0, 200)
+RESEG_INTERVAL = 30
 frame_count = 0
 
 cap = cv2.VideoCapture(0)
@@ -126,7 +126,7 @@ while True:
     if key == ord('q'):
         break
     elif key == ord('r'):
-        base_mask = None  
+        base_mask = None
 
 cap.release()
 cv2.destroyAllWindows()

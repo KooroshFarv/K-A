@@ -19,9 +19,9 @@ app = Flask(__name__)
 sock = Sock(app)
 
 API_KEY = os.environ.get("LIGHTX_API_KEY")
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+# face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-# Load face mesh model
+# face mesh model
 MODEL_PATH = "face_landmarker.task"
 if not os.path.exists(MODEL_PATH):
     print("Downloading face landmark model...")
@@ -36,13 +36,16 @@ face_options = vision.FaceLandmarkerOptions(
     min_tracking_confidence=0.5
 )
 
-# Load hair segmentation model
+# hair segmentation model
 print("Loading hair segmentation model...")
-processor = SegformerImageProcessor.from_pretrained("mattmdjaga/segformer_b2_clothes")
-hair_model = AutoModelForSemanticSegmentation.from_pretrained("mattmdjaga/segformer_b2_clothes")
+from transformers import SegformerForSemanticSegmentation
+processor = SegformerImageProcessor.from_pretrained("jonathandinu/face-parsing")
+hair_model = SegformerForSemanticSegmentation.from_pretrained("jonathandinu/face-parsing")
 hair_model.eval()
-HAIR_LABEL = 2
-PROCESS_SIZE = 256
+HAIR_LABEL = 13  # label 13 = hair in jonathandinu/face-parsing (CelebAMask-HQ labels)
+NECK_LABEL = 17
+SKIN_LABEL = 1
+PROCESS_SIZE = 512
 
 ANCHOR_IDS = [1, 33, 263, 152, 234, 454]
 
@@ -64,15 +67,19 @@ def get_hair_mask(frame):
     with torch.no_grad():
         outputs = hair_model(**inputs)
     logits = outputs.logits
-    upsampled = torch.nn.functional.interpolate(logits, size=(h, w), mode="bilinear", align_corners=False)
+    upsampled = torch.nn.functional.interpolate(
+        logits, size=(h, w), mode="bilinear", align_corners=False
+    )
     pred = upsampled.argmax(dim=1)[0].numpy()
+
+    # Hair mask — label 13
     mask = (pred == HAIR_LABEL).astype(np.uint8)
 
-    # Remove small noise blobs
+    # Remove noise blobs
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-    # Keep only largest connected component
+    # Keep largest component
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     if num_labels > 1:
         largest = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
@@ -80,26 +87,54 @@ def get_hair_mask(frame):
         clean_mask[labels == largest] = 1
         mask = clean_mask
 
-    # Fill holes inside hair region
+    # Fill holes
     kernel2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel2)
 
-    # Exclude face region
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-    for (x, y, fw, fh) in faces:
-        pad_x = int(fw * 0.05)
-        x1 = max(0, x + pad_x)
-        y1 = max(0, y + int(fh * 0.15))
-        x2 = min(w, x + fw - pad_x)
-        y2 = min(h, y + fh + int(fh * 0.1))
-        mask[y1:y2, x1:x2] = 0
+    # Use model's own predictions to exclude face regions
+    # This is much more accurate than Haar cascade or YCrCb skin detection
+    # because the same model that finds hair also finds skin/neck/cloth
+    skin_region = (pred == SKIN_LABEL).astype(np.uint8)   # face skin
+    neck_region = (pred == NECK_LABEL).astype(np.uint8)   # neck
+    cloth_region = (pred == 18).astype(np.uint8)           # clothing
 
-    # Smooth edges
-    mask_blur = cv2.GaussianBlur(mask.astype(np.float32), (11, 11), 0)
-    mask = (mask_blur > 0.5).astype(np.uint8)
+    # Dilate exclusion zones slightly to create a buffer at boundaries
+    excl_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    skin_excl = cv2.dilate(skin_region, excl_kernel, iterations=1)
+    neck_excl = cv2.dilate(neck_region, excl_kernel, iterations=2)
+    cloth_excl = cv2.dilate(cloth_region, excl_kernel, iterations=1)
 
-    return mask
+    # Remove those regions from hair mask
+    mask[skin_excl > 0] = 0
+    mask[neck_excl > 0] = 0
+    mask[cloth_excl > 0] = 0
+
+    # Detect hair type for adaptive processing
+    hair_pixels = frame[mask == 1]
+    if len(hair_pixels) > 100:
+        hair_hsv = cv2.cvtColor(
+            hair_pixels.reshape(-1, 1, 3).astype(np.uint8),
+            cv2.COLOR_BGR2HSV
+        ).reshape(-1, 3)
+        avg_val = np.median(hair_hsv[:, 2])
+        avg_sat = np.median(hair_hsv[:, 1])
+        avg_hue = np.median(hair_hsv[:, 0])
+        if avg_val < 80:
+            hair_type = "dark"
+        elif (avg_hue < 25 or avg_hue > 155) and avg_sat > 60:
+            hair_type = "warm"
+        elif avg_val > 160 and avg_sat < 80:
+            hair_type = "light"
+        else:
+            hair_type = "medium"
+    else:
+        hair_type = "medium"
+
+    # Soft feathered edges
+    mask_float = mask.astype(np.float32)
+    blur_size = 21 if hair_type == "warm" else 31
+    mask_blur = cv2.GaussianBlur(mask_float, (blur_size, blur_size), 0)
+    return mask_blur
 
 def get_anchors(face_landmarks, w, h):
     pts = []
@@ -112,7 +147,10 @@ def apply_color(frame, mask, color_bgr):
     if color_bgr is None:
         return frame
 
-    # Convert frame and target color to HSV
+    # mask is now a float 0.0-1.0 (soft edges)
+    mask_smooth = np.clip(mask, 0, 1)
+
+    # Convert to HSV
     frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
     color_pixel = np.uint8([[list(color_bgr)]])
     color_hsv = cv2.cvtColor(color_pixel, cv2.COLOR_BGR2HSV)[0][0].astype(np.float32)
@@ -120,27 +158,32 @@ def apply_color(frame, mask, color_bgr):
     target_hue = color_hsv[0]
     target_sat = color_hsv[1]
 
+    # Specular highlight detection — preserve shiny spots
+    value_channel = frame_hsv[:, :, 2]
+    specular_mask = (value_channel > 200).astype(np.float32)
+    specular_mask = cv2.GaussianBlur(specular_mask, (7, 7), 0)
+    non_specular = 1.0 - specular_mask
+
+    effective_mask = mask_smooth * non_specular
+
     output_hsv = frame_hsv.copy()
 
-    # Smoothed mask for natural edges
-    mask_smooth = cv2.GaussianBlur(mask.astype(np.float32), (11, 11), 0)
+    # Replace hue
+    output_hsv[:, :, 0] = (frame_hsv[:, :, 0] * (1 - effective_mask) +
+                            target_hue * effective_mask)
 
-    # Replace hue completely where mask is active
-    output_hsv[:, :, 0] = frame_hsv[:, :, 0] * (1 - mask_smooth) + target_hue * mask_smooth
-
-    # Boost saturation toward target color
+    # Boost saturation
     value_map = frame_hsv[:, :, 2] / 255.0
     sat_boost = target_sat * (0.5 + 0.5 * value_map)
     output_hsv[:, :, 1] = np.clip(
-        frame_hsv[:, :, 1] * (1 - mask_smooth) + sat_boost * mask_smooth,
+        frame_hsv[:, :, 1] * (1 - effective_mask) + sat_boost * effective_mask,
         0, 255
     )
 
-    # Keep original Value (brightness) to preserve hair texture
     output_bgr = cv2.cvtColor(output_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # Final blend
-    mask_3ch = cv2.merge([mask_smooth, mask_smooth, mask_smooth])
+    # Final blend with soft mask
+    mask_3ch = cv2.merge([effective_mask, effective_mask, effective_mask])
     result = (frame.astype(np.float32) * (1 - mask_3ch * 0.9) +
               output_bgr.astype(np.float32) * (mask_3ch * 0.9))
 
