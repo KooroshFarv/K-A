@@ -143,51 +143,123 @@ def get_anchors(face_landmarks, w, h):
         pts.append([lm.x * w, lm.y * h])
     return np.array(pts, dtype=np.float32)
 
-def apply_color(frame, mask, color_bgr):
+def build_lut(color_bgr, hair_type="dark"):
+    """
+    Pre-calculate a lookup table (LUT) for hair color rendering.
+    Maps every possible pixel brightness (0-255) to the correct
+    colored output — this is how Banuba achieves realistic results.
+    
+    Two LUTs are built based on hair type:
+    - Dark hair LUT: lifts shadows so colors show on dark base
+    - Light hair LUT: preserves brightness, adjusts hue/saturation
+    
+    At render time, we just do a table lookup instead of per-pixel math.
+    This is faster AND more accurate than real-time HSV calculations.
+    """
+    if color_bgr is None:
+        return None
+
+    # Convert target color to HSV
+    color_pixel = np.uint8([[list(color_bgr)]])
+    color_hsv = cv2.cvtColor(color_pixel, cv2.COLOR_BGR2HSV)[0][0].astype(np.float32)
+    target_hue = color_hsv[0]
+    target_sat = color_hsv[1]
+    target_val = color_hsv[2]
+
+    # Build a 256-entry LUT
+    # Each entry maps input brightness -> output BGR color
+    lut = np.zeros((256, 3), dtype=np.float32)
+
+    for i in range(256):
+        brightness = i / 255.0  # normalize to 0-1
+
+        # --- Hue: always use target color's hue ---
+        out_hue = target_hue
+
+        # --- Saturation: scale by brightness ---
+        # Very dark pixels get lower saturation (looks more natural)
+        # Very bright pixels (specular) get near-zero saturation
+        if brightness > 0.78:
+            # Specular highlight — keep near white, don't tint
+            out_sat = target_sat * (1.0 - brightness) * 2.0
+        else:
+            # Normal hair — scale saturation by brightness
+            # Brighter pixels get more saturation
+            out_sat = target_sat * (0.4 + 0.6 * brightness)
+
+        # --- Value (brightness): depends on hair type and target ---
+        if hair_type == "dark" and target_val > 150:
+            # Light color on dark hair — lift shadows significantly
+            # so white/blonde actually shows up on black hair
+            lift = (target_val / 255.0) * 0.65
+            out_val = brightness * (1.0 - lift) + lift
+            out_val = min(out_val * 1.1, 1.0)
+        elif hair_type == "light" and target_val < 100:
+            # Dark color on light hair — darken slightly
+            out_val = brightness * 0.7 + (target_val / 255.0) * 0.3
+        else:
+            # Normal case — preserve original brightness with slight boost
+            out_val = brightness * 0.85 + (target_val / 255.0) * 0.15
+
+        # Clamp all values
+        out_hue = np.clip(out_hue, 0, 179)
+        out_sat = np.clip(out_sat, 0, 255)
+        out_val = np.clip(out_val * 255, 0, 255)
+
+        # Convert HSV -> BGR for this LUT entry
+        hsv_pixel = np.uint8([[[out_hue, out_sat, out_val]]])
+        bgr = cv2.cvtColor(hsv_pixel, cv2.COLOR_HSV2BGR)[0][0]
+        lut[i] = bgr.astype(np.float32)
+
+    return lut
+
+
+def apply_lut(frame, mask, lut):
+    """
+    Apply pre-calculated LUT to hair pixels.
+    For each hair pixel, look up its brightness in the LUT
+    and replace with the pre-calculated colored value.
+    This is a simple array lookup — extremely fast.
+    """
+    if lut is None:
+        return frame
+
+    mask_smooth = np.clip(mask, 0, 1)
+
+    # Get brightness of each pixel (grayscale)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # shape (H, W)
+
+    # Look up each pixel's brightness in the LUT
+    # lut shape: (256, 3) — index by brightness value
+    colored = lut[gray]  # shape (H, W, 3) — instant lookup, no per-pixel math
+
+    # Specular highlight mask — preserve very bright spots
+    specular = (gray > 200).astype(np.float32)
+    specular = cv2.GaussianBlur(specular, (7, 7), 0)
+    non_specular = 1.0 - specular
+
+    # Effective mask = hair region minus specular highlights
+    effective_mask = mask_smooth * non_specular
+    mask_3ch = cv2.merge([effective_mask, effective_mask, effective_mask])
+
+    # Blend: colored hair where mask is active, original elsewhere
+    result = (frame.astype(np.float32) * (1 - mask_3ch * 0.92) +
+              colored * (mask_3ch * 0.92))
+
+    return result.clip(0, 255).astype(np.uint8)
+
+
+def apply_color(frame, mask, color_bgr, hair_type="medium"):
+    """
+    Main color application — builds LUT then applies it.
+    Called every frame but LUT should be cached externally
+    for better performance (rebuild only when color changes).
+    """
     if color_bgr is None:
         return frame
 
-    # mask is now a float 0.0-1.0 (soft edges)
-    mask_smooth = np.clip(mask, 0, 1)
-
-    # Convert to HSV
-    frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
-    color_pixel = np.uint8([[list(color_bgr)]])
-    color_hsv = cv2.cvtColor(color_pixel, cv2.COLOR_BGR2HSV)[0][0].astype(np.float32)
-
-    target_hue = color_hsv[0]
-    target_sat = color_hsv[1]
-
-    # Specular highlight detection — preserve shiny spots
-    value_channel = frame_hsv[:, :, 2]
-    specular_mask = (value_channel > 200).astype(np.float32)
-    specular_mask = cv2.GaussianBlur(specular_mask, (7, 7), 0)
-    non_specular = 1.0 - specular_mask
-
-    effective_mask = mask_smooth * non_specular
-
-    output_hsv = frame_hsv.copy()
-
-    # Replace hue
-    output_hsv[:, :, 0] = (frame_hsv[:, :, 0] * (1 - effective_mask) +
-                            target_hue * effective_mask)
-
-    # Boost saturation
-    value_map = frame_hsv[:, :, 2] / 255.0
-    sat_boost = target_sat * (0.5 + 0.5 * value_map)
-    output_hsv[:, :, 1] = np.clip(
-        frame_hsv[:, :, 1] * (1 - effective_mask) + sat_boost * effective_mask,
-        0, 255
-    )
-
-    output_bgr = cv2.cvtColor(output_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
-    # Final blend with soft mask
-    mask_3ch = cv2.merge([effective_mask, effective_mask, effective_mask])
-    result = (frame.astype(np.float32) * (1 - mask_3ch * 0.9) +
-              output_bgr.astype(np.float32) * (mask_3ch * 0.9))
-
-    return result.clip(0, 255).astype(np.uint8)
+    lut = build_lut(color_bgr, hair_type)
+    return apply_lut(frame, mask, lut)
 
 
 @app.route('/health', methods=['GET'])
@@ -206,6 +278,9 @@ def stream(ws):
     current_color = None
     smooth_matrix = None
     SMOOTH_FACTOR = 0.85
+    current_lut = None      # cached LUT — only rebuilds when color changes
+    last_color = None       # track last color to detect changes
+    hair_type = "medium"    # detected hair type — updates on reseg
 
     while True:
         try:
@@ -216,6 +291,10 @@ def stream(ws):
 
             if "color_bgr" in msg:
                 current_color = tuple(msg["color_bgr"]) if msg["color_bgr"] else None
+                # Rebuild LUT only when color changes
+                if current_color != last_color:
+                    current_lut = build_lut(current_color, hair_type) if current_color else None
+                    last_color = current_color
 
             if "frame" not in msg:
                 continue
@@ -239,6 +318,28 @@ def stream(ws):
                     base_anchors = current_anchors.copy()
                     smooth_matrix = None
                     display_mask = base_mask
+
+                    # Update hair type after reseg and rebuild LUT
+                    hair_pixels = frame[base_mask > 0.3]
+                    if len(hair_pixels) > 100:
+                        hair_hsv = cv2.cvtColor(
+                            hair_pixels.reshape(-1, 1, 3).astype(np.uint8),
+                            cv2.COLOR_BGR2HSV
+                        ).reshape(-1, 3)
+                        avg_val = np.median(hair_hsv[:, 2])
+                        avg_sat = np.median(hair_hsv[:, 1])
+                        avg_hue = np.median(hair_hsv[:, 0])
+                        if avg_val < 80:
+                            hair_type = "dark"
+                        elif (avg_hue < 25 or avg_hue > 155) and avg_sat > 60:
+                            hair_type = "warm"
+                        elif avg_val > 160 and avg_sat < 80:
+                            hair_type = "light"
+                        else:
+                            hair_type = "medium"
+                    # Rebuild LUT with updated hair type
+                    if current_color:
+                        current_lut = build_lut(current_color, hair_type)
                 else:
                     transform_matrix, _ = cv2.estimateAffinePartial2D(base_anchors, current_anchors)
                     if transform_matrix is not None:
@@ -251,7 +352,11 @@ def stream(ws):
                     else:
                         display_mask = base_mask
 
-                output = apply_color(frame, display_mask, current_color)
+                # Apply color using cached LUT
+                if current_lut is not None:
+                    output = apply_lut(frame, display_mask, current_lut)
+                else:
+                    output = frame
             else:
                 output = frame
 
@@ -262,7 +367,6 @@ def stream(ws):
             break
 
     print("Client disconnected")
-
 
 @app.route('/hairstyle', methods=['POST'])
 def hairstyle():
