@@ -222,14 +222,30 @@ def apply_lut(frame, mask, lut):
 
     mask_smooth = np.clip(mask, 0, 1)
 
-    # Double-blur the mask for extra soft edges
-    # First blur already happened in get_hair_mask (31px)
-    # Second pass here softens the transition even further
+    
     mask_smooth = cv2.GaussianBlur(mask_smooth, (25, 25), 0)
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     colored = lut[gray]
 
+    gray_float = gray.astype(np.float32) / 255.0
+    blurred = cv2.GaussianBlur(gray_float, (5, 5), 0)
+
+    local_contrast = gray_float - blurred
+
+    target_brightness = lut[128][0] * 0.114 + lut[128][1] * 0.587 + lut[128][2] * 0.299
+    target_brightness = target_brightness / 255.0
+
+
+    if target_brightness > 0.4:
+        contrast_strength = min(target_brightness * 1.8, 2.5)
+    else:
+        contrast_strength = 1.0
+
+
+    contrast_3ch = np.stack([local_contrast * contrast_strength * 80] * 3, axis=2)
+    colored = np.clip(colored + contrast_3ch, 0, 255)
+    
     # Specular highlight mask
     specular = (gray > 200).astype(np.float32)
     specular = cv2.GaussianBlur(specular, (7, 7), 0)
